@@ -1,0 +1,99 @@
+---
+title: "Multiple imputation"
+author: "Anne Margit"
+date: "8/24/2021"
+output: github_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r, message=F, comment=NA}
+library(mice)
+library(dplyr)
+library(VIM)
+library(haven)
+library(skimr)
+```
+
+```{r, message=F, comment=NA}
+load("person2021_miss.Rdata")
+baseline_data <- read_sav("200217_Baseline_Data_Total_Scores.sav")
+```
+
+```{r,  message=F, comment=NA}
+baseline_data <- baseline_data %>% select(ID, Age, Sex_d, 
+           dep_total, neu_total, extr_total)
+
+person2021_miss_impute <- left_join(baseline_data, person2021_miss,by = "ID")
+
+person2021_miss_impute$Sex_d <- as_factor(person2021_miss_impute$Sex_d)
+
+```
+
+Extra column indicating which values are missing
+```{r,  message=F, comment=NA}
+person2021_miss_impute <- person2021_miss_impute %>%
+  mutate(miss = ifelse(is.na(ar.na6) | is.na(ar.na2) | is.na(ar.na1) | is.na(ar.na5) |
+                         is.na(ar.na4) | is.na(ar.na3) | is.na(ar.pa3) | is.na(ar.pa2), 1, 0))
+```
+
+Missing data pattern
+```{r}
+aggr_plot <- aggr(person2021_miss_impute, col=c('navyblue','red'), numbers=TRUE, 
+                  sortVars=TRUE, labels=names(data), cex.axis=.7, 
+                  gap=3, ylab=c("Histogram of missing data","Pattern"))
+
+person2021_miss_impute %>%
+  dplyr::select(ar.na1, ar.na2, ar.na3, ar.na4, ar.na5, ar.na6, ar.pa2, ar.pa3) %>%
+  skim()
+```
+
+Predictor matrix
+```{r, results = "hide"}
+imp0 <- mice(person2021_miss_impute, maxit = 0)
+pred <- imp0$predictorMatrix
+pred[, c("ID", "miss", "Sex_d")] <- 0
+pred
+```
+
+Imputation
+```{r,  message=F, comment=NA, results = "hide"}
+imp1 <- mice(person2021_miss_impute, m=5, maxit=10, meth="pmm", predictorMatrix = pred)
+```
+
+Checking
+```{r, message=F, comment=NA}
+summary(imp1)
+plot(imp1)
+densityplot(imp1)
+```
+
+Dataframe
+```{r}
+impdata2021 <- complete(imp1)
+```
+
+Compare old and new datasets
+```{r}
+person2021_miss_impute %>%
+  dplyr::select(ar.na1, ar.na2, ar.na3, ar.na4, ar.na5, ar.na6, ar.pa2, ar.pa3) %>%
+  skim()
+
+impdata2021 %>%
+  dplyr::select(ar.na1, ar.na2, ar.na3, ar.na4, ar.na5, ar.na6, ar.pa2, ar.pa3) %>%
+  skim()
+```
+
+Save
+```{r}
+impdata2021<- impdata2021[with(impdata2021, order(ID)),]
+
+save("impdata2021", file="impdata2021.Rdata")
+
+impdata2021pca <- impdata2021 %>%
+  dplyr::select(-c(ID, Age, Sex_d, dep_total, neu_total, extr_total, miss))
+
+save("impdata2021pca", file="impdata2021pca")
+```
